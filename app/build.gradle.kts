@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "ir.anten.yab"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "ir.anten.yab"
         minSdk = 26
@@ -12,4 +13,13 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
