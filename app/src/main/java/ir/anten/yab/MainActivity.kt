@@ -287,7 +287,7 @@ class MainActivity : Activity() {
                             if (range >= 0) append("محدوده تخمین پایگاه داده: $range متر\n")
                             if (samples >= 0) append("تعداد نمونه‌های ثبت‌شده: $samples\n")
                             append(devicePositionSummary(lat, lon))
-                            append("\nاین نقطه الزاماً محل دقیق دکل فیزیکی نیست.")
+                            append("\nاین نقطه الزاماً محل دقیق دکل فیزیکی نیست.\nکد اپراتور از سیم‌کارت پیش‌فرض اینترنت گرفته شده؛ در گوشی دو سیم‌کارته تطبیق سلول با سیم‌کارت ممکن است قطعی نباشد.")
                         })
                         val mapUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
                         try {
