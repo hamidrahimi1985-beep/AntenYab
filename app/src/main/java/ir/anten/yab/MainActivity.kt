@@ -2,19 +2,24 @@ package ir.anten.yab
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.telephony.*
 import android.view.ViewGroup
 import android.widget.*
-import kotlin.math.abs
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : Activity() {
     private lateinit var content: LinearLayout
     private val requestCode = 41
-    private val headerCount = 4
+    private val headerCount = 6
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,12 +33,11 @@ class MainActivity : Activity() {
         setContentView(scroll)
 
         addText("📡 آنتن‌یاب هوشمند", 25, true)
-        addText("تحلیل جداگانه سیم‌کارت‌ها و مقایسه کیفیت شبکه", 15, false)
-        content.addView(Button(this).apply {
-            text = "به‌روزرسانی اطلاعات"
-            setOnClickListener { refreshData() }
-        }, match())
+        addText("تحلیل جداگانه سیم‌کارت‌ها و مکان‌یابی سلول", 15, false)
+        addButton("به‌روزرسانی اطلاعات") { refreshData() }
         addText("برای دریافت اطلاعات شبکه، مجوز تلفن و مکان را بدهید و Location را روشن کنید.", 13, false)
+        addButton("تنظیم کلید پایگاه داده آنلاین") { showApiKeyDialog() }
+        addButton("مکان‌یابی سلول ثبت‌شده") { lookupRegisteredCell() }
 
         if (hasPermissions()) refreshData() else askPermissions()
     }
@@ -41,6 +45,13 @@ class MainActivity : Activity() {
     private fun match() = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
     )
+
+    private fun addButton(label: String, action: () -> Unit) {
+        content.addView(Button(this).apply {
+            text = label
+            setOnClickListener { action() }
+        }, match())
+    }
 
     private fun addText(value: String, size: Int, bold: Boolean) {
         val v = TextView(this).apply {
@@ -119,7 +130,7 @@ class MainActivity : Activity() {
             addCard(buildString {
                 append("سیم‌کارت ${report.slot} — ${report.carrier}\n")
                 append("شبکه داده: ${report.network}\n")
-                append("قدرت سیگنال اختصاصی این اشتراک: ${report.dbm?.let { "$it dBm" } ?: "اندروید مقدار جداگانه‌ای ارائه نکرد"}\n")
+                append("قدرت سیگنال گزارش‌شده برای این اشتراک: ${report.dbm?.let { "$it dBm" } ?: "اندروید مقدار جداگانه‌ای ارائه نکرد"}\n")
                 report.rsrp?.let { append("RSRP: $it dBm\n") }
                 report.rsrq?.let { append("RSRQ: $it dB\n") }
                 report.sinr?.let { append("SINR: $it dB\n") }
@@ -144,8 +155,8 @@ class MainActivity : Activity() {
             })
         }
 
-        // Android's allCellInfo is device-level on many dual-SIM phones. Do not
-        // query it inside the subscription loop or copy its registered cell to both SIM cards.
+        // Android often exposes registered cell information at device level.
+        // Never copy this one cell record into both SIM reports.
         val baseTm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
         val registeredCell = try {
             baseTm.allCellInfo?.firstOrNull { it.isRegistered }
@@ -153,20 +164,145 @@ class MainActivity : Activity() {
 
         addText("اطلاعات سلول ثبت‌شده دستگاه", 18, true)
         if (registeredCell == null) {
-            addCard("اندروید در حال حاضر شناسه سلول ثبت‌شده را در اختیار برنامه نگذاشته است. این اطلاعات به‌زور به سیم‌کارت‌ها نسبت داده نمی‌شود.")
+            addCard("اندروید در حال حاضر شناسه سلول ثبت‌شده را در اختیار برنامه نگذاشته است. اطلاعات حدسی نمایش داده نمی‌شود.")
         } else {
             addCard(cellDescription(registeredCell) +
-                "\n\nتوجه: این اطلاعات از فهرست سلول‌های سطح دستگاه دریافت شده و در گوشی‌های دو سیم‌کارته الزاماً قابل انتساب مستقل به هر سیم‌کارت نیست.")
+                "\n\nاین اطلاعات از فهرست سلول‌های سطح دستگاه دریافت شده و در گوشی دو سیم‌کارته الزاماً قابل انتساب مستقل به هر سیم‌کارت نیست.")
         }
 
-        addText("نکته درباره نقشه دکل", 18, true)
-        addCard("Cell ID و قدرت سیگنال به‌تنهایی مختصات دکل را مشخص نمی‌کنند. برای نمایش محل دکل، فاصله و جهت، باید مختصات همان سلول از یک پایگاه داده معتبر سلول‌های مخابراتی دریافت شود. تا وقتی مختصات معتبر پیدا نشود، برنامه محل حدسی نمایش نمی‌دهد.")
+        addText("مکان‌یابی آنلاین", 18, true)
+        addCard("برای مکان‌یابی، کلید OpenCelliD را در بخش تنظیمات وارد کنید. مختصات برگشتی تخمینی است و ممکن است برای بعضی سلول‌ها در پایگاه داده موجود نباشد.")
+        addText("داده مکانی از OpenCelliD با رعایت مجوز CC BY-SA 4.0 نمایش داده می‌شود.", 12, false)
     }
 
     private data class SimReport(
         val slot: Int, val subscriptionId: Int, val carrier: String,
         val network: String, val dbm: Int?, val rsrp: Int?, val rsrq: Int?, val sinr: Int?
     )
+
+    private fun showApiKeyDialog() {
+        val input = EditText(this).apply {
+            hint = "کلید API"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(getSharedPreferences("tower_database", MODE_PRIVATE).getString("api_key", ""))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("کلید OpenCelliD")
+            .setMessage("کلید API را در همین گوشی وارد کنید. آن را در گفتگو یا جای عمومی نفرستید.")
+            .setView(input)
+            .setPositiveButton("ذخیره") { _, _ ->
+                getSharedPreferences("tower_database", MODE_PRIVATE).edit()
+                    .putString("api_key", input.text.toString().trim()).apply()
+                Toast.makeText(this, "کلید روی گوشی ذخیره شد.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("انصراف", null)
+            .show()
+    }
+
+    private fun lookupRegisteredCell() {
+        if (!hasPermissions()) { askPermissions(); return }
+        val key = getSharedPreferences("tower_database", MODE_PRIVATE)
+            .getString("api_key", "")?.trim().orEmpty()
+        if (key.isBlank()) {
+            showApiKeyDialog()
+            return
+        }
+
+        val baseTm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val cell = try { baseTm.allCellInfo?.firstOrNull { it.isRegistered } }
+                   catch (_: Exception) { null }
+        if (cell == null) {
+            Toast.makeText(this, "اطلاعات سلول ثبت‌شده در دسترس نیست.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val identity = when (cell) {
+            is CellInfoLte -> Triple("LTE", cell.cellIdentity.tac, cell.cellIdentity.ci.toLong())
+            is CellInfoNr -> if (Build.VERSION.SDK_INT >= 29) {
+                val id = cell.cellIdentity as CellIdentityNr
+                Triple("NR", id.tac, id.nci)
+            } else null
+            else -> null
+        }
+        if (identity == null || identity.second < 0 || identity.third < 0) {
+            Toast.makeText(this, "فعلاً مکان‌یابی این نوع سلول یا شناسه آن پشتیبانی نمی‌شود.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as SubscriptionManager
+        val subs = try { sm.activeSubscriptionInfoList ?: emptyList() }
+                   catch (_: Exception) { emptyList() }
+        val dataSubId = SubscriptionManager.getDefaultDataSubscriptionId()
+        val sub = subs.firstOrNull { it.subscriptionId == dataSubId }
+        if (sub == null) {
+            Toast.makeText(this, "سیم‌کارت پیش‌فرض اینترنت شناسایی نشد؛ امکان تطبیق اپراتور با سلول وجود ندارد.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val mcc: String
+        val mnc: String
+        if (Build.VERSION.SDK_INT >= 29) {
+            mcc = sub.mccString ?: ""
+            mnc = sub.mncString ?: ""
+        } else {
+            mcc = sub.mcc.toString()
+            mnc = sub.mnc.toString()
+        }
+        if (mcc.isBlank() || mnc.isBlank() || mcc == "0" || mnc == "0") {
+            Toast.makeText(this, "کدهای شبکه اپراتور در دسترس نیستند.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        addText("در حال جست‌وجوی موقعیت تخمینی سلول در پایگاه داده آنلاین…", 14, false)
+        Thread {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL(
+                    "https://opencellid.org/cell/get?key=${Uri.encode(key)}&mcc=$mcc&mnc=$mnc&lac=${identity.second}&cellid=${identity.third}&radio=${identity.first}&format=json"
+                )
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                }
+                val body = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val json = JSONObject(body)
+                val lat = json.optDouble("lat", Double.NaN)
+                val lon = json.optDouble("lon", Double.NaN)
+                if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
+                    val message = json.optString("message", "سلول در پایگاه داده پیدا نشد یا پاسخ معتبر نبود.")
+                    runOnUiThread {
+                        addCard("موقعیت پیدا نشد: $message\nممکن است این سلول هنوز در پایگاه داده ثبت نشده باشد.")
+                    }
+                } else {
+                    val range = json.optInt("range", -1)
+                    val samples = json.optInt("samples", -1)
+                    runOnUiThread {
+                        addCard(buildString {
+                            append("مختصات تخمینی سلول:\nعرض جغرافیایی: $lat\nطول جغرافیایی: $lon\n")
+                            if (range >= 0) append("محدوده تخمین پایگاه داده: $range متر\n")
+                            if (samples >= 0) append("تعداد نمونه‌های ثبت‌شده: $samples\n")
+                            append("این نقطه الزاماً محل دقیق دکل فیزیکی نیست.")
+                        })
+                        val mapUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, mapUri))
+                        } catch (_: Exception) {
+                            Toast.makeText(this, "نقشه روی این گوشی باز نشد.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    addCard("خطا در ارتباط با پایگاه داده: ${e.localizedMessage ?: "نامشخص"}")
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
+    }
 
     private fun saveHistory(report: SimReport) {
         val prefs = getSharedPreferences("signal_history", Context.MODE_PRIVATE)
