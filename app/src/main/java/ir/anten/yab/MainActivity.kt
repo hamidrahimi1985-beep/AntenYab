@@ -232,29 +232,15 @@ class MainActivity : Activity() {
             return
         }
 
-        val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as SubscriptionManager
-        val subs = try { sm.activeSubscriptionInfoList ?: emptyList() }
-                   catch (_: Exception) { emptyList() }
-        val dataSubId = SubscriptionManager.getDefaultDataSubscriptionId()
-        val sub = subs.firstOrNull { it.subscriptionId == dataSubId }
-        if (sub == null) {
-            Toast.makeText(this, "سیم‌کارت پیش‌فرض اینترنت شناسایی نشد؛ امکان تطبیق اپراتور با سلول وجود ندارد.", Toast.LENGTH_LONG).show()
+        // Use MCC/MNC from the exact registered cell, not the default-data SIM.
+        val operatorCodes = cellOperatorCodes(cell)
+        if (operatorCodes == null) {
+            Toast.makeText(this, "کدهای MCC/MNC خود سلول ثبت‌شده در دسترس نیست؛ برای جلوگیری از جست‌وجوی اشتباه، درخواست ارسال نشد.", Toast.LENGTH_LONG).show()
             return
         }
-
-        val mcc: String
-        val mnc: String
-        if (Build.VERSION.SDK_INT >= 29) {
-            mcc = sub.mccString ?: ""
-            mnc = sub.mncString ?: ""
-        } else {
-            mcc = sub.mcc.toString()
-            mnc = sub.mnc.toString()
-        }
-        if (mcc.isBlank() || mnc.isBlank() || mcc == "0" || mnc == "0") {
-            Toast.makeText(this, "کدهای شبکه اپراتور در دسترس نیستند.", Toast.LENGTH_LONG).show()
-            return
-        }
+        val mcc = operatorCodes.first
+        val mnc = operatorCodes.second
+        addText("شناسه‌های مورد استفاده برای جست‌وجو: MCC=$mcc ، MNC=$mnc ، TAC/LAC=${identity.second} ، Cell ID=${identity.third} ، ${identity.first}", 13, false)
 
         addText("در حال جست‌وجوی موقعیت تخمینی سلول در پایگاه داده آنلاین…", 14, false)
         Thread {
@@ -268,15 +254,18 @@ class MainActivity : Activity() {
                     connectTimeout = 12000
                     readTimeout = 12000
                 }
-                val body = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
+                val status = connection.responseCode
+                val body = (if (status in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() }.orEmpty()
-                val json = JSONObject(body)
+                val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
                 val lat = json.optDouble("lat", Double.NaN)
                 val lon = json.optDouble("lon", Double.NaN)
                 if (lat.isNaN() || lon.isNaN() || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
-                    val message = json.optString("message", "سلول در پایگاه داده پیدا نشد یا پاسخ معتبر نبود.")
+                    val message = json.optString("message").ifBlank {
+                        body.take(300).ifBlank { "پاسخ خالی از سرویس" }
+                    }
                     runOnUiThread {
-                        addCard("موقعیت پیدا نشد: $message\nممکن است این سلول هنوز در پایگاه داده ثبت نشده باشد.")
+                        addCard("موقعیت پیدا نشد (HTTP $status): $message\\nممکن است سلول در پایگاه داده نباشد یا دسترسی کلید API محدود باشد.")
                     }
                 } else {
                     val range = json.optInt("range", -1)
@@ -371,6 +360,9 @@ class MainActivity : Activity() {
     private fun cellDescription(cell: CellInfo): String = buildString {
         append("قدرت سیگنال سلول: ${cell.cellSignalStrength.dbm} dBm\n")
         append("ثبت‌شده: ${if (cell.isRegistered) "بله" else "خیر"}\n")
+        cellOperatorCodes(cell)?.let { codes ->
+            append("MCC: ${codes.first}\\nMNC: ${codes.second}\\n")
+        } ?: append("MCC/MNC: اندروید برای این سلول ارائه نکرد\\n")
         when (cell) {
             is CellInfoLte -> {
                 val c = cell.cellIdentity
@@ -391,6 +383,26 @@ class MainActivity : Activity() {
             }
             else -> append("فناوری سلول: نامشخص/سایر\n")
         }
+    }
+
+    private fun cellOperatorCodes(cell: CellInfo): Pair<String, String>? {
+        val raw = when (cell) {
+            is CellInfoLte -> {
+                val id = cell.cellIdentity
+                if (Build.VERSION.SDK_INT >= 28) Pair(id.mccString, id.mncString)
+                else Pair(id.mcc.toString(), id.mnc.toString())
+            }
+            is CellInfoNr -> if (Build.VERSION.SDK_INT >= 29) {
+                val id = cell.cellIdentity as CellIdentityNr
+                Pair(id.mccString, id.mncString)
+            } else null
+            else -> null
+        } ?: return null
+
+        val mcc = raw.first?.trim().orEmpty()
+        val mnc = raw.second?.trim().orEmpty()
+        if (mcc.toIntOrNull() !in 100..999 || mnc.toIntOrNull() !in 0..999) return null
+        return Pair(mcc, mnc)
     }
 
     private fun safe(v: Int): String = if (v == Int.MAX_VALUE || v < 0) "نامشخص/محدود" else v.toString()
