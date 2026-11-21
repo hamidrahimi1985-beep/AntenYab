@@ -6,6 +6,8 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -284,7 +286,8 @@ class MainActivity : Activity() {
                             append("مختصات تخمینی سلول:\nعرض جغرافیایی: $lat\nطول جغرافیایی: $lon\n")
                             if (range >= 0) append("محدوده تخمین پایگاه داده: $range متر\n")
                             if (samples >= 0) append("تعداد نمونه‌های ثبت‌شده: $samples\n")
-                            append("این نقطه الزاماً محل دقیق دکل فیزیکی نیست.")
+                            append(devicePositionSummary(lat, lon))
+                            append("\nاین نقطه الزاماً محل دقیق دکل فیزیکی نیست.")
                         })
                         val mapUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
                         try {
@@ -303,6 +306,48 @@ class MainActivity : Activity() {
             }
         }.start()
     }
+
+
+    private fun devicePositionSummary(towerLat: Double, towerLon: Double): String {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val current = try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .mapNotNull { provider ->
+                    try { lm.getLastKnownLocation(provider) } catch (_: Exception) { null }
+                }
+                .maxByOrNull { it.time }
+        } catch (_: Exception) { null }
+
+        if (current == null || System.currentTimeMillis() - current.time > 120_000L) {
+            return "\nموقعیت تازه گوشی در دسترس نیست؛ فاصله و جهت محاسبه نشد."
+        }
+
+        val destination = Location("cell_database").apply {
+            latitude = towerLat
+            longitude = towerLon
+        }
+        val meters = current.distanceTo(destination)
+        val bearing = (current.bearingTo(destination) + 360f) % 360f
+        val distanceText = if (meters >= 1000f) {
+            String.format(java.util.Locale.US, "%.2f کیلومتر", meters / 1000f)
+        } else {
+            "${meters.toInt()} متر"
+        }
+        return "\nفاصله مستقیم تقریبی از گوشی تا مختصات سلول: $distanceText" +
+            "\nجهت تقریبی از گوشی به سلول: ${directionName(bearing)} (${bearing.toInt()} درجه)"
+    }
+
+    private fun directionName(degrees: Float): String =
+        when (((degrees + 22.5f) / 45f).toInt() % 8) {
+            0 -> "شمال"
+            1 -> "شمال‌شرق"
+            2 -> "شرق"
+            3 -> "جنوب‌شرق"
+            4 -> "جنوب"
+            5 -> "جنوب‌غرب"
+            6 -> "غرب"
+            else -> "شمال‌غرب"
+        }
 
     private fun saveHistory(report: SimReport) {
         val prefs = getSharedPreferences("signal_history", Context.MODE_PRIVATE)
