@@ -168,7 +168,7 @@ class MainActivity : Activity() {
             content.addView(card, params)
 
             // Monitoring selection is local to the app; it does not force a radio handover.
-            watchableCells = watchableCells.sortedByDescending { it.cellSignalStrength.dbm }
+            watchableCells = watchableCells.sortedByDescending { signalDbm(it) }
             val preferenceKey = "watch_${sub.subscriptionId}"
             val savedKey = getSharedPreferences("anten_yab", Context.MODE_PRIVATE)
                 .getString(preferenceKey, null)
@@ -196,6 +196,12 @@ class MainActivity : Activity() {
             }
         }
         addText("توجه: در 5G NSA ممکن است LTE به‌عنوان شبکه پایه و 5G به‌عنوان اتصال افزوده نمایش داده شود. نمایش NR-PCI و باند 5G به پشتیبانی مودم و نسخه اندروید/اپراتور بستگی دارد.", 13, false)
+    }
+
+    private fun signalDbm(cell: CellInfo): Int = when (cell) {
+        is CellInfoNr -> cell.cellSignalStrength.dbm
+        is CellInfoLte -> cell.cellSignalStrength.dbm
+        else -> Int.MIN_VALUE
     }
 
     private fun cellTitle(cell: CellInfo): String = when (cell) {
