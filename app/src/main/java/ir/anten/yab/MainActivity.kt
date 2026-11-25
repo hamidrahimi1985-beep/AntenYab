@@ -111,8 +111,10 @@ class MainActivity : Activity() {
             }
             report.append("شبکه پایه دیتا: " + baseNetworkName(tm.dataNetworkType) + "\n")
 
+            var watchableCells: List<CellInfo> = emptyList()
             try {
                 val cells = tm.allCellInfo ?: emptyList()
+                watchableCells = cells.filter { it is CellInfoLte || it is CellInfoNr }
                 val registered = cells.filter { it.isRegistered }
                 val relevantCells = (registered + cells.filter { !it.isRegistered })
                     .distinctBy { cellKey(it) }
@@ -166,8 +168,7 @@ class MainActivity : Activity() {
             content.addView(card, params)
 
             // Monitoring selection is local to the app; it does not force a radio handover.
-            val watchableCells = (cells.filterIsInstance<CellInfoLte>() + cells.filterIsInstance<CellInfoNr>())
-                .sortedByDescending { it.cellSignalStrength.dbm }
+            watchableCells = watchableCells.sortedByDescending { it.cellSignalStrength.dbm }
             val preferenceKey = "watch_${sub.subscriptionId}"
             val savedKey = getSharedPreferences("anten_yab", Context.MODE_PRIVATE)
                 .getString(preferenceKey, null)
