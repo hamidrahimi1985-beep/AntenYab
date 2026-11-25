@@ -164,8 +164,49 @@ class MainActivity : Activity() {
             val params = match()
             params.topMargin = 18
             content.addView(card, params)
+
+            // Monitoring selection is local to the app; it does not force a radio handover.
+            val watchableCells = (cells.filterIsInstance<CellInfoLte>() + cells.filterIsInstance<CellInfoNr>())
+                .sortedByDescending { it.cellSignalStrength.dbm }
+            val preferenceKey = "watch_${sub.subscriptionId}"
+            val savedKey = getSharedPreferences("anten_yab", Context.MODE_PRIVATE)
+                .getString(preferenceKey, null)
+            addText("انتخاب سلول برای پایش (قوی‌ترین سیگنال در ابتدا)", 16, true)
+            if (watchableCells.isEmpty()) {
+                addText("سلول قابل انتخابی از طرف اندروید گزارش نشد.", 13, false)
+            } else {
+                watchableCells.forEach { cell ->
+                    val key = cellKey(cell)
+                    val selected = key == savedKey
+                    val label = (if (selected) "✓ در حال پایش: " else "پایش این سلول: ") + cellTitle(cell)
+                    content.addView(Button(this).apply {
+                        text = label
+                        isAllCaps = false
+                        setOnClickListener {
+                            getSharedPreferences("anten_yab", Context.MODE_PRIVATE).edit()
+                                .putString(preferenceKey, key).apply()
+                            refreshData()
+                        }
+                    }, match())
+                }
+                if (savedKey != null && watchableCells.none { cellKey(it) == savedKey }) {
+                    addText("سلول انتخاب‌شده فعلاً در فهرست سلول‌های گزارش‌شده نیست.", 13, false)
+                }
+            }
         }
         addText("توجه: در 5G NSA ممکن است LTE به‌عنوان شبکه پایه و 5G به‌عنوان اتصال افزوده نمایش داده شود. نمایش NR-PCI و باند 5G به پشتیبانی مودم و نسخه اندروید/اپراتور بستگی دارد.", 13, false)
+    }
+
+    private fun cellTitle(cell: CellInfo): String = when (cell) {
+        is CellInfoNr -> {
+            val c = cell.cellIdentity as CellIdentityNr
+            "5G NR | PCI ${safe(c.pci)} | NCI ${safe(c.nci)} | ${cell.cellSignalStrength.dbm} dBm"
+        }
+        is CellInfoLte -> {
+            val c = cell.cellIdentity
+            "4G LTE | PCI ${safe(c.pci)} | Cell ID ${safe(c.ci)} | ${cell.cellSignalStrength.dbm} dBm"
+        }
+        else -> "سلول ناشناخته"
     }
 
     private fun cellKey(cell: CellInfo): String = when (cell) {
